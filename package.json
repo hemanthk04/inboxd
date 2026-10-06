@@ -6,5 +6,9 @@
     "dev": "pnpm --filter @inboxd/api dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "dotenv": "^18.0.5",
+    "drizzle-kit": "^0.31.11"
   }
 }
