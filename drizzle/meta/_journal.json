@@ -8,6 +8,13 @@
       "when": 1791285602205,
       "tag": "0000_breezy_speed_demon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791356375868,
+      "tag": "0001_omniscient_mathemanic",
+      "breakpoints": true
     }
   ]
 }

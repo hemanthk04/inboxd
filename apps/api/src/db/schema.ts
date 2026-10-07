@@ -57,3 +57,27 @@ export const apiKeys = pgTable(
     accountIdIdx: index("api_keys_account_id_idx").on(table.accountId),
   }),
 );
+
+export const inboxes = pgTable(
+  "inboxes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+
+    address: varchar("address", { length: 320 })
+      .notNull()
+      .unique(),
+
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    accountIdIdx: index("inboxes_account_id_idx").on(table.accountId),
+  }),
+);
