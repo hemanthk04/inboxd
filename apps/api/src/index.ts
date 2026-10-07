@@ -6,6 +6,8 @@ import accountsRouter from "./routes/accounts.js";
 import meRouter from "./routes/me.js";
 import inboxesRouter from "./routes/inboxes.js";
 
+import "./smtp/server.js";
+
 const app = new Hono();
 
 app.get("/", (c) => {

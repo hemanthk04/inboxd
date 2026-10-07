@@ -5,6 +5,7 @@ import {
   timestamp,
   text,
   index,
+  jsonb
 } from "drizzle-orm/pg-core";
 
 export const accounts = pgTable("accounts", {
@@ -79,5 +80,43 @@ export const inboxes = pgTable(
   },
   (table) => ({
     accountIdIdx: index("inboxes_account_id_idx").on(table.accountId),
+  }),
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    inboxId: uuid("inbox_id")
+      .notNull()
+      .references(() => inboxes.id, { onDelete: "cascade" }),
+
+    messageId: text("message_id"),
+
+    from: jsonb("from").notNull(),
+    to: jsonb("to").notNull(),
+
+    subject: text("subject"),
+
+    text: text("text"),
+    html: text("html"),
+
+    date: timestamp("date", {
+      withTimezone: true,
+    }),
+
+    headers: jsonb("headers"),
+    attachments: jsonb("attachments"),
+
+    receivedAt: timestamp("received_at", {
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    inboxIdIdx: index("messages_inbox_id_idx").on(table.inboxId),
+    messageIdIdx: index("messages_message_id_idx").on(table.messageId),
   }),
 );

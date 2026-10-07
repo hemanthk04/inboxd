@@ -15,6 +15,13 @@
       "when": 1791356375868,
       "tag": "0001_omniscient_mathemanic",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791359763345,
+      "tag": "0002_bent_elektra",
+      "breakpoints": true
     }
   ]
 }
