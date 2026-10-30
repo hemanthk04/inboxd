@@ -9,22 +9,19 @@ import { inboxes, messages } from "../db/schema.js";
 // Maximum email size: 10 MB.
 const MAX_EMAIL_SIZE = 10 * 1024 * 1024;
 
-// Maximum recipients allowed in one SMTP transaction.
-
-
 const smtpServer = new SMTPServer({
-  // Development only. We'll configure SMTP authentication before
-  // exposing the receiver publicly.
+  // Development only. Authentication must be configured
+  // before exposing the receiver publicly.
   authOptional: true,
 
-  // Basic resource protection.
+  // SMTP server-level message size limit.
   size: MAX_EMAIL_SIZE,
 
   /**
    * Validate every SMTP recipient.
    *
    * This callback runs for each RCPT TO command.
-   * We reject addresses that don't belong to an existing inbox.
+   * Only existing inbox addresses are accepted.
    */
   async onRcptTo(address, session, callback) {
     try {
@@ -63,27 +60,62 @@ const smtpServer = new SMTPServer({
   /**
    * Process the incoming email.
    *
-   * session.envelope.rcptTo contains all recipients accepted
-   * for THIS SMTP transaction.
-   *
-   * This avoids the previous global-variable concurrency issue.
+   * Each SMTP transaction has its own session and envelope.
+   * We use session.envelope.rcptTo instead of a global variable.
    */
   onData(stream, session, callback) {
     const chunks: Buffer[] = [];
 
+    let totalBytes = 0;
+    let oversized = false;
+    let callbackCalled = false;
+
+    // Ensure the SMTP callback is invoked only once.
+    const finish = (error?: Error) => {
+      if (callbackCalled) return;
+
+      callbackCalled = true;
+      callback(error);
+    };
+
     stream.on("data", (chunk) => {
-      chunks.push(Buffer.from(chunk));
+      const buffer = Buffer.from(chunk);
+
+      totalBytes += buffer.length;
+
+      // Stop buffering additional data after crossing the limit.
+      if (totalBytes > MAX_EMAIL_SIZE) {
+        oversized = true;
+        return;
+      }
+
+      chunks.push(buffer);
+    });
+
+    stream.on("error", (error) => {
+      console.error("SMTP stream error:", error);
+      finish(error);
     });
 
     stream.on("end", async () => {
       try {
+        // Reject oversized messages before parsing or storing.
+        if (oversized || stream.sizeExceeded) {
+          const error = new Error(
+            "Message exceeds the maximum allowed size of 10 MB",
+          ) as Error & { responseCode: number };
+
+          error.responseCode = 552;
+          return finish(error);
+        }
+
         const rawEmail = Buffer.concat(chunks);
 
-        // Parse the raw email into structured fields.
+        // Parse the raw MIME email.
         const parser = new PostalMime();
         const email = await parser.parse(rawEmail);
 
-        // Read recipients from this specific SMTP transaction.
+        // Get recipients from this SMTP transaction only.
         const recipientAddresses = [
           ...new Set(
             session.envelope.rcptTo.map(
@@ -96,7 +128,7 @@ const smtpServer = new SMTPServer({
           throw new Error("No SMTP recipients found");
         }
 
-        // Find all inboxes belonging to the accepted recipients.
+        // Find all matching inboxes.
         const recipientInboxes = await db
           .select({
             id: inboxes.id,
@@ -105,14 +137,14 @@ const smtpServer = new SMTPServer({
           .from(inboxes)
           .where(inArray(inboxes.address, recipientAddresses));
 
-        // An inbox might have been deleted between RCPT TO and DATA.
+        // Ensure every accepted recipient still has an inbox.
         if (recipientInboxes.length !== recipientAddresses.length) {
           throw new Error(
             "One or more recipient inboxes no longer exist",
           );
         }
 
-        // Store a separate message record in every recipient inbox.
+        // Create one message record per recipient inbox.
         await db.insert(messages).values(
           recipientInboxes.map((inbox) => ({
             inboxId: inbox.id,
@@ -132,13 +164,14 @@ const smtpServer = new SMTPServer({
           sessionId: session.id,
           recipients: recipientAddresses,
           subject: email.subject,
+          size: totalBytes,
         });
 
-        callback();
+        finish();
       } catch (error) {
         console.error("Failed to process email:", error);
 
-        callback(
+        finish(
           error instanceof Error
             ? error
             : new Error("Failed to process email"),
@@ -148,6 +181,7 @@ const smtpServer = new SMTPServer({
   },
 });
 
+// Start the SMTP receiver.
 smtpServer.listen(2525, () => {
   console.log("inboxd SMTP server running on port 2525");
 });

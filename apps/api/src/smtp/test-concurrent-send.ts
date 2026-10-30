@@ -1,24 +1,18 @@
+
 import nodemailer from "nodemailer";
 
 const recipients = [
   {
-    host: "localhost",
-    port: 2525,
     to: "test_d0307d7080bf@inboxd.dev",
     subject: "Concurrent test - Inbox 1",
   },
   {
-    host: "localhost",
-    port: 2525,
-    to: "test_98cc0e47ab5a@inboxd.dev",
-    subject: "Concurrent test - Inbox 2",
+    to: "test_15a60866ffc1@inboxd.dev",
+    subject: "Concurrent test - Inbox 3",
   },
 ];
 
-async function sendTestEmail(
-  to: string,
-  subject: string,
-) {
+async function sendTestEmail(to: string, subject: string) {
   const transporter = nodemailer.createTransport({
     host: "localhost",
     port: 2525,
@@ -46,10 +40,9 @@ async function sendTestEmail(
   }
 }
 
-// Both emails are sent concurrently.
 await Promise.all(
-  recipients.map((recipient) =>
-    sendTestEmail(recipient.to, recipient.subject),
+  recipients.map(({ to, subject }) =>
+    sendTestEmail(to, subject),
   ),
 );
 
