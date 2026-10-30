@@ -1,5 +1,6 @@
+
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, ilike } from "drizzle-orm";
 
 import { db } from "../db/index.js";
 import { inboxes, messages } from "../db/schema.js";
@@ -7,27 +8,53 @@ import { authMiddleware } from "../middleware/auth.js";
 
 const messagesRouter = new Hono();
 
-/**
- * All message routes require a valid inboxd API key.
- */
+// All message endpoints require authentication.
 messagesRouter.use("*", authMiddleware);
 
 /**
  * GET /v1/inboxes/:inboxId/messages
  *
- * Returns messages belonging to the requested inbox.
- *
- * We verify that the inbox belongs to the authenticated account
- * before returning anything.
+ * Query parameters:
+ * - subject: Case-insensitive partial subject match
+ * - after: Return messages received after this ISO timestamp
+ * - limit: Maximum number of messages (default 20, max 100)
  */
 messagesRouter.get("/:inboxId/messages", async (c) => {
   const account = c.get("account");
   const inboxId = c.req.param("inboxId");
 
-  const inbox = await db
-    .select({
-      id: inboxes.id,
-    })
+  // Read query parameters.
+  const subject = c.req.query("subject")?.trim();
+  const after = c.req.query("after");
+  const limitParam = c.req.query("limit");
+
+  // Validate the limit.
+  const limit = limitParam === undefined ? 20 : Number(limitParam);
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return c.json(
+      { error: "Limit must be an integer between 1 and 100" },
+      400,
+    );
+  }
+
+  // Validate the timestamp, if supplied.
+  let afterDate: Date | undefined;
+
+  if (after !== undefined) {
+    afterDate = new Date(after);
+
+    if (Number.isNaN(afterDate.getTime())) {
+      return c.json(
+        { error: "Invalid after timestamp. Use ISO 8601 format." },
+        400,
+      );
+    }
+  }
+
+  // Verify that this inbox belongs to the authenticated account.
+  const [inbox] = await db
+    .select({ id: inboxes.id })
     .from(inboxes)
     .where(
       and(
@@ -37,15 +64,22 @@ messagesRouter.get("/:inboxId/messages", async (c) => {
     )
     .limit(1);
 
-  if (!inbox[0]) {
-    return c.json(
-      {
-        error: "Inbox not found",
-      },
-      404,
-    );
+  if (!inbox) {
+    return c.json({ error: "Inbox not found" }, 404);
   }
 
+  // Build message filters.
+  const conditions = [eq(messages.inboxId, inboxId)];
+
+  if (subject) {
+    conditions.push(ilike(messages.subject, `%${subject}%`));
+  }
+
+  if (afterDate) {
+    conditions.push(gt(messages.receivedAt, afterDate));
+  }
+
+  // Fetch matching messages, newest first.
   const result = await db
     .select({
       id: messages.id,
@@ -60,11 +94,14 @@ messagesRouter.get("/:inboxId/messages", async (c) => {
       receivedAt: messages.receivedAt,
     })
     .from(messages)
-    .where(eq(messages.inboxId, inboxId))
-    .orderBy(desc(messages.receivedAt));
+    .where(and(...conditions))
+    .orderBy(desc(messages.receivedAt))
+    .limit(limit);
 
   return c.json({
     messages: result,
+    count: result.length,
+    limit,
   });
 });
 
