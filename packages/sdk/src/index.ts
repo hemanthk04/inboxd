@@ -13,16 +13,40 @@ export interface WaitForEmailOptions {
   after?: Date;
 }
 
+export interface EmailAddress {
+  name?: string | null;
+  address: string;
+}
+
+
+export interface EmailAttachment {
+  filename: string | null;
+  mimeType: string;
+  disposition: string | null;
+  related: boolean;
+  contentId: string | null;
+  content: string; // Base64-encoded content
+
+  toBuffer(): Buffer;
+}
+
+export function attachmentToBuffer(
+  attachment: EmailAttachment,
+): Buffer {
+  return Buffer.from(attachment.content, "base64");
+}
+
+
 export interface InboxdEmail {
   id: string;
   messageId: string | null;
-  from: unknown;
-  to: unknown;
+  from: EmailAddress | EmailAddress[] | null;
+  to: EmailAddress | EmailAddress[] | null;
   subject: string | null;
   text: string | null;
   html: string | null;
   date: string | null;
-  attachments: unknown;
+  attachments: EmailAttachment[];
   receivedAt: string;
 }
 
@@ -122,26 +146,30 @@ class Inbox {
 
       const data = (await response.json()) as MessagesResponse;
 
-      
       const matchingEmail = data.messages.find((email) => {
         // Match sender (case-insensitive).
         // PostalMime may return the sender as an object:
         // { name: "Sender", address: "sender@example.com" }
-        if (
-          options.from &&
-          !JSON.stringify(email.from ?? "")
-            .toLowerCase()
-            .includes(options.from.toLowerCase())
-        ) {
-          return false;
+        if (options.from) {
+          const senders = Array.isArray(email.from)
+            ? email.from
+            : email.from
+              ? [email.from]
+              : [];
+
+          const senderMatches = senders.some((sender) =>
+            sender.address.toLowerCase().includes(options.from!.toLowerCase()),
+          );
+
+          if (!senderMatches) {
+            return false;
+          }
         }
 
         // Match body text (case-insensitive).
         if (
           options.text &&
-          !(email.text ?? "")
-            .toLowerCase()
-            .includes(options.text.toLowerCase())
+          !(email.text ?? "").toLowerCase().includes(options.text.toLowerCase())
         ) {
           return false;
         }

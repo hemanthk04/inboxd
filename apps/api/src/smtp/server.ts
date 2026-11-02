@@ -1,4 +1,3 @@
-
 import { SMTPServer } from "smtp-server";
 import PostalMime from "postal-mime";
 import { inArray, eq } from "drizzle-orm";
@@ -118,9 +117,7 @@ const smtpServer = new SMTPServer({
         // Get recipients from this SMTP transaction only.
         const recipientAddresses = [
           ...new Set(
-            session.envelope.rcptTo.map(
-              (recipient) => recipient.address,
-            ),
+            session.envelope.rcptTo.map((recipient) => recipient.address),
           ),
         ];
 
@@ -139,9 +136,7 @@ const smtpServer = new SMTPServer({
 
         // Ensure every accepted recipient still has an inbox.
         if (recipientInboxes.length !== recipientAddresses.length) {
-          throw new Error(
-            "One or more recipient inboxes no longer exist",
-          );
+          throw new Error("One or more recipient inboxes no longer exist");
         }
 
         // Create one message record per recipient inbox.
@@ -156,7 +151,31 @@ const smtpServer = new SMTPServer({
             html: email.html ?? null,
             date: email.date ? new Date(email.date) : null,
             headers: email.headers ?? null,
-            attachments: email.attachments ?? [],
+
+            attachments: (email.attachments ?? []).map((attachment) => {
+              const content = attachment.content;
+
+              let base64Content: string;
+
+              if (typeof content === "string") {
+                base64Content = Buffer.from(content, "utf8").toString("base64");
+              } else if (content instanceof ArrayBuffer) {
+                base64Content = Buffer.from(new Uint8Array(content)).toString(
+                  "base64",
+                );
+              } else {
+                base64Content = Buffer.from(content).toString("base64");
+              }
+
+              return {
+                filename: attachment.filename ?? null,
+                mimeType: attachment.mimeType,
+                disposition: attachment.disposition ?? null,
+                related: attachment.related ?? false,
+                contentId: attachment.contentId ?? null,
+                content: base64Content,
+              };
+            }),
           })),
         );
 
@@ -172,9 +191,7 @@ const smtpServer = new SMTPServer({
         console.error("Failed to process email:", error);
 
         finish(
-          error instanceof Error
-            ? error
-            : new Error("Failed to process email"),
+          error instanceof Error ? error : new Error("Failed to process email"),
         );
       }
     });
